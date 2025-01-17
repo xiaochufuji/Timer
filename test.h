@@ -5,7 +5,7 @@ public:
     MyClass();
     ~MyClass();
     int operator1(int a, int b);
-    static int operator2(int a, int b, const std::string &str);
+    static inline std::string operator2(int a, int b, const std::string& str);
 private:
 
 };
@@ -24,8 +24,8 @@ int MyClass::operator1(int a, int b)
     return c;
 }
 
-inline int MyClass::operator2(int a, int b, const std::string& str)
+inline std::string MyClass::operator2(int a, int b, const std::string& str)
 {
     std::cout << str << std::endl;
-    return 0;
+    return "helloworld";
 }

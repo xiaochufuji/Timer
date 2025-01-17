@@ -18,17 +18,16 @@ void print_message(const std::string& msg)
 
 int main()
 {
-    Timer timer;
-    timer.start(100, [] {
-        std::cout << "=========" << std::endl;
-    });
-
+    // 1. print pause
+    // 2. print start (500ms/times)
+    // 3. print SingleShot (delay 1000ms and print once)
+    // 4. print waitThenStart (delay 2000ms and print (100ms/times))
     Timer timer1;
-    MyClass my;
-    timer.start(1000, &MyClass::operator1, &my, 1, 2);
-
-    Timer::SingleShot(1000, &MyClass::operator2, 1,2,"123");
-
+    timer1.waitThenStart(2000, 100, &MyClass::operator2, 1, 2, "waitThenStart");
+    Timer::SingleShot(998, &MyClass::operator2, 1, 2, "SingleShot");
+    Timer timer2;
+    timer2.start(500, &MyClass::operator2, 1, 2, "start");
+    Timer::SingleShot(1000, &MyClass::operator2, 1, 2, "the second time shot");
     system("pause");
     return 0;
 }
