@@ -13,11 +13,13 @@
 #include <iostream>
 #include <memory>
 #include <limits>
+#include "raiithread.h"
 
-#define ASYNC_OR_THREAD
-#define MAXLOOPS LLONG_MAX
+#define INFINITE_LOOPS LLONG_MAX
+//#undef __cplusplus
+//#define __cplusplus (202002L)
 
-class Timer
+class Timer: public std::enable_shared_from_this<Timer>
 {
 public:
     using Timer_p = std::shared_ptr<Timer>;
@@ -26,8 +28,6 @@ public:
     ~Timer() { stop(); }
 
 public:
-    // singleton mode
-    static Timer* GetGlobalInstance();
     void reset();
 
     // start the interval and run now
@@ -46,7 +46,7 @@ public:
     template<typename Func, typename... Args>
     static auto SingleShot(int64_t waitTime, Func&& callback, Args&&... args);
     template<typename Func, typename... Args>
-    auto SingleShot(const std::chrono::milliseconds& waitTime, Func&& callback, Args&&... args);
+    static auto SingleShot(const std::chrono::milliseconds& waitTime, Func&& callback, Args&&... args);
 
     // setter/getter
     bool running();
@@ -60,11 +60,10 @@ public:
 
 
 private:
-    void _start(bool wait = false);
+    void _start(bool waitForCompletion = false);
     void _stop();
-    void _singleShot(bool wait = true);
+    void _singleShot(bool waitForCompletion = true);
     void _join();
-    void _resetSingleShot();
 
 private:
 
@@ -75,23 +74,12 @@ private:
     std::function<void()> m_callback;
     int64_t m_loopTimes = 0;
     int64_t m_maxLoopTimes = 300;
-#ifdef ASYNC_OR_THREAD
     std::future<void> m_task;
-#else
-    std::thread m_thread;
-#endif
 };
 
-// global instance
-static Timer g_instance;
 inline Timer::Timer(int64_t maxLoopTimes)
 {
     m_maxLoopTimes = maxLoopTimes;
-}
-
-Timer* Timer::GetGlobalInstance()
-{
-    return &g_instance;
 }
 
 inline void Timer::reset()
@@ -106,11 +94,19 @@ void Timer::start(int64_t interval, Func&& callback, Args&&... args)
 {
     if (m_callback)  return;
     m_interval = std::chrono::milliseconds{ interval };
+#if __cplusplus >= 202002L 
+    m_callback = std::function<void()>(
+        [cb = std::forward<Func>(callback), ... args = std::forward<Args>(args)]() {
+            cb(args...);
+        });
+    _start();
+#else
     m_callback = std::function<void()>(
         [cb = std::bind(std::forward<Func>(callback), std::forward<Args>(args)...)]() {
             cb();
         });
     _start();
+#endif
 }
 
 template<typename Func, typename... Args>
@@ -118,19 +114,19 @@ void Timer::start(const std::chrono::milliseconds& interval, Func&& callback, Ar
 {
     if (m_callback)  return;
     m_interval = interval;
+#if __cplusplus >= 202002L 
+    m_callback = std::function<void()>(
+        [cb = std::forward<Func>(callback), ... args = std::forward<Args>(args)]() {
+            cb(args...);
+        });
+    _start();
+#else
     m_callback = std::function<void()>(
         [cb = std::bind(std::forward<Func>(callback), std::forward<Args>(args)...)]() {
             cb();
         });
     _start();
-    //using RetType = decltype(callback(args...));
-    //auto _task = std::make_shared<std::packaged_task<RetType()>>(std::bind(std::forward<Func>(callback), std::forward<Args>(args)...));
-    //std::future<RetType> _future = _task->get_future();
-    //m_callback = [_task] {
-    //    _task();
-    //    };
-    //_start();
-    //return _future;
+#endif
 }
 
 template<typename Func, typename ...Args>
@@ -139,11 +135,19 @@ void Timer::waitThenStart(int64_t waiteTime, int64_t interval, Func&& callback, 
     if (m_callback)  return;
     m_waitTime = std::chrono::milliseconds{ waiteTime };
     m_interval = std::chrono::milliseconds{ interval };
+#if __cplusplus >= 202002L 
+    m_callback = std::function<void()>(
+        [cb = std::forward<Func>(callback), ... args = std::forward<Args>(args)]() {
+            cb(args...);
+        });
+    _start(true);
+#else
     m_callback = std::function<void()>(
         [cb = std::bind(std::forward<Func>(callback), std::forward<Args>(args)...)]() {
             cb();
         });
     _start(true);
+#endif
 }
 
 template<typename Func, typename ...Args>
@@ -152,17 +156,25 @@ void Timer::waitThenStart(const std::chrono::milliseconds& waiteTime, const std:
     if (m_callback)  return;
     m_waitTime = std::chrono::milliseconds{ waiteTime };
     m_interval = std::chrono::milliseconds{ interval };
+#if __cplusplus >= 202002L 
+    m_callback = std::function<void()>(
+        [cb = std::forward<Func>(callback), ... args = std::forward<Args>(args)]() {
+            cb(args...);
+        });
+    _start(true);
+#else
     m_callback = std::function<void()>(
         [cb = std::bind(std::forward<Func>(callback), std::forward<Args>(args)...)]() {
             cb();
         });
     _start(true);
+#endif
 }
 
 template<typename Func, typename ...Args>
 auto Timer::SingleShot(int64_t waitTime, Func&& callback, Args && ...args)
 {
-    Timer* timer = &g_instance;
+    Timer_p timer = std::make_shared<Timer>();
     using RetType = decltype(callback(args...));
     if (timer->m_callback)  return std::future<RetType>{};
     timer->m_waitTime = std::chrono::milliseconds{ waitTime };
@@ -188,10 +200,9 @@ auto Timer::SingleShot(int64_t waitTime, Func&& callback, Args && ...args)
 template<typename Func, typename ...Args>
 auto Timer::SingleShot(const std::chrono::milliseconds& waitTime, Func&& callback, Args && ...args)
 {
-    Timer* timer = &g_instance;
+    Timer_p timer = std::make_shared<Timer>();
     using RetType = decltype(callback(args...));
     if (timer->m_callback)  return std::future<RetType>{};
-    using RetType = decltype(callback(args...));
     timer->m_waitTime = waitTime;
 #if __cplusplus >= 202002L 
     auto _task = std::make_shared<std::packaged_task<RetType()>>(
@@ -208,7 +219,7 @@ auto Timer::SingleShot(const std::chrono::milliseconds& waitTime, Func&& callbac
     timer->m_callback = [_task] {
         (*_task)();
         };
-    timer->_singleShot(timer, true);
+    timer->_singleShot(true);
     return _future;
 }
 
@@ -257,25 +268,23 @@ inline void Timer::setMaxLoopTimes(int64_t i_maxLoopTimes)
     m_maxLoopTimes = i_maxLoopTimes;
 }
 
-void Timer::_start(bool wait)
+void Timer::_start(bool waitForCompletion)
 {
     m_running = true;
-#ifdef ASYNC_OR_THREAD
-    m_task = std::async(std::launch::async, [this, wait]() {
-        if (wait)
+    m_task = std::async(std::launch::async, [this, waitForCompletion]() {
+        if (waitForCompletion)
         {
             std::this_thread::sleep_for(m_waitTime);
         }
         while (m_running)
         {
-            if (m_loopTimes++ > m_maxLoopTimes && m_maxLoopTimes != MAXLOOPS) break;
+            if (m_loopTimes++ > m_maxLoopTimes && m_maxLoopTimes != INFINITE_LOOPS) break;
             try
             {
                 std::this_thread::sleep_for(m_interval);
                 if (m_callback) {
                     m_callback();
                     m_haveIntoCallback = true;
-                    m_loopTimes++;
                 }
             }
             catch (const std::exception& e) {
@@ -289,38 +298,7 @@ void Timer::_start(bool wait)
                 m_running = false;
             }
         }
-        });
-#else
-    m_thread = std::thread([this, wait]() {
-        m_running = true;
-        if (wait)
-        {
-            std::this_thread::sleep_for(m_waitTime);
-        }
-        while (m_running)
-        {
-            if (m_loopTimes++ > m_maxLoopTimes && m_maxLoopTimes != MAXLOOPS) break;
-            try {
-                std::this_thread::sleep_for(m_interval);
-                if (m_callback) {
-                    m_callback();
-                    m_haveIntoCallback = true;
-                    m_loopTimes++;
-                }
-            }
-            catch (const std::exception& e) {
-                std::string error = std::string("thread _start: Caught exception: ") + std::string(e.what());
-                std::cout << error << std::endl;
-                m_running = false;
-            }
-            catch (...) {
-                std::string error = std::string("thread _start: Caught unknown exception!");
-                std::cout << error << std::endl;
-                m_running = false;
-            }
-        }
-        });
-#endif
+    });
 }
 
 inline void Timer::_stop()
@@ -332,69 +310,47 @@ inline void Timer::_stop()
     _join();
 }
 
-void Timer::_singleShot(bool wait)
+void Timer::_singleShot(bool waitForCompletion)
 {
-#ifdef ASYNC_OR_THREAD
-    m_task = std::async(std::launch::async, [this, wait]() {
-        try
+    Timer_p timer = shared_from_this();
+    timer->m_task = std::async(std::launch::async, [timer = timer, waitForCompletion]() {
+    try
+    {
+        if (waitForCompletion)
         {
-            if (wait)
-            {
-                std::this_thread::sleep_for(m_waitTime);
-            }
-            if (m_callback) {
-                m_callback();
-            }
+            std::this_thread::sleep_for(timer->m_waitTime);
         }
-        catch (const std::exception& e) {
-            std::string error = std::string("async _singleShot: Caught exception: ") + std::string(e.what());
-            std::cout << error << std::endl;
+        if (timer->m_callback) {
+            timer->m_callback();
         }
-        catch (...) {
-            std::string error = std::string("async _singleShot: Caught unknown exception!");
-            std::cout << error << std::endl;
-        }
-        });
-#else
-    m_thread = std::thread([this, wait]() {
-        try {
-            if (wait)
-            {
-                std::this_thread::sleep_for(m_waitTime);
-            }
-            if (m_callback) {
-                m_callback();
-            }
-        }
-        catch (const std::exception& e) {
-            std::string error = std::string("thread _singleShot: Caught exception: ") + std::string(e.what());
-            std::cout << error << std::endl;
-        }
-        catch (...) {
-            std::string error = std::string("thread _singleShot: Caught unknown exception!");
-            std::cout << error << std::endl;
-        }
-        });
-#endif
+    }
+    catch (const std::exception& e) {
+        std::string error = std::string("async _singleShot: Caught exception: ") + std::string(e.what());
+        std::cout << error << std::endl;
+    }
+    catch (...) {
+        std::string error = std::string("async _singleShot: Caught unknown exception!");
+        std::cout << error << std::endl;
+    }
+    });
 }
 
 inline void Timer::_join()
 {
-#ifdef ASYNC_OR_THREAD
     if (m_task.valid()) {
-        m_task.get();
+        try {
+            std::future_status status = m_task.wait_for(std::chrono::milliseconds(100));  // ÉèÖÃ³¬Ê±
+            if (status == std::future_status::timeout) {
+                std::cout << "Async task took too long to complete." << std::endl;
+            }
+            else {
+                m_task.get();
+            }
+        }
+        catch (const std::future_error& e) {
+            std::cout << "Error while waiting for future: " << e.what() << std::endl;
+        }
     }
-#else
-    if (m_thread.joinable()) {
-        m_thread.join();
-    }
-#endif
-}
-
-inline void Timer::_resetSingleShot()
-{
-    g_instance.m_haveIntoCallback = false;
-    g_instance.m_callback = nullptr;
 }
 
 #endif  // HEADER

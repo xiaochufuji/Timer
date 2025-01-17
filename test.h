@@ -20,7 +20,7 @@ MyClass::~MyClass()
 int MyClass::operator1(int a, int b)
 {
     int c = a + b;
-    std::cout << "hello world1" << std::endl;
+    std::cout << "non-static function" << std::endl;
     return c;
 }
 
