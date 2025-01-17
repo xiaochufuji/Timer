@@ -13,7 +13,6 @@
 #include <iostream>
 #include <memory>
 #include <limits>
-#include "raiithread.h"
 
 #define INFINITE_LOOPS LLONG_MAX
 //#undef __cplusplus
