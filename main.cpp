@@ -16,7 +16,7 @@ void print_message(const std::string& msg)
 int main()
 {
     // 最多触发10次, 等待2000ms后触发, 回调函数为: 非静态成员函数
-// Trigger at most 10 times, wait for 2000ms before triggering, callback function: non-static member function
+    // Trigger at most 10 times, wait for 2000ms before triggering, callback function: non-static member function
     Timer timer1(10);
     MyClass my;
     timer1.waitThenStart(2000, 100, &MyClass::operator1, &my, 1, 2);
